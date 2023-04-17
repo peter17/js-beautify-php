@@ -1,0 +1,15 @@
+{
+    "name": "peter17/js-beautify-php",
+    "authors": [
+        {
+            "name": "lvqingan",
+            "homepage": "https://github.com/lvqingan",
+            "role": "Developer"
+        }
+    ],
+    "description": "A JavaScript source code formatter written in PHP.",
+    "license": "proprietary",
+    "require": {
+        "php": ">=7.4"
+    }
+}

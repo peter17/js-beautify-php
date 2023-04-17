@@ -1,5 +1,7 @@
 <?php
 
+namespace JSBeautify;
+
 class JSBeautify
 {
     /**
