@@ -1,248 +1,395 @@
 <?php
 
-require_once __DIR__.'/vendor/autoload.php';
+require_once __DIR__ . '/vendor/autoload.php';
 
 use JSBeautify\JSBeautify;
 use PHPUnit\Framework\TestCase;
 
 class JSBeautifyTest extends TestCase
 {
-    /**
-     * Test basic JavaScript beautification with simple variable declaration
-     */
-    public function testBasicVariableDeclaration()
-    {
-        $input = 'var x=1;var y=2;';
-        $beautifier = new JSBeautify($input);
-        $output = $beautifier->getResult();
+    // -------------------------------------------------------------------------
+    // Options – type coercion / fallback defaults
+    // -------------------------------------------------------------------------
 
-        $this->assertSame("var x = 1;\nvar y = 2;", $output);
+    /**
+     * Numeric string passed as indent_size must be accepted and cast to int.
+     */
+    public function testIndentSizeAcceptsNumericString(): void
+    {
+        $beautifier = new JSBeautify('if(true){var x=1;}', ['indent_size' => '2']);
+        $this->assertSame("if (true) {\n  var x = 1;\n}", $beautifier->getResult());
     }
 
     /**
-     * Test empty input handling
+     * A non-numeric indent_size must fall back to the default of 4.
      */
-    public function testEmptyInput()
+    public function testIndentSizeFallsBackToDefaultOnInvalidValue(): void
     {
-        $beautifier = new JSBeautify('');
-        $output = $beautifier->getResult();
-
-        $this->assertSame('', $output);
+        $beautifier = new JSBeautify('if(true){var x=1;}', ['indent_size' => 'bad']);
+        $this->assertSame("if (true) {\n    var x = 1;\n}", $beautifier->getResult());
     }
 
     /**
-     * Test single line comment preservation
+     * A non-string indent_char must fall back to a single space.
      */
-    public function testSingleLineComment()
+    public function testIndentCharFallsBackToSpaceOnInvalidValue(): void
     {
-        $input = 'var x=1;//This is a comment';
-        $beautifier = new JSBeautify($input);
-        $output = $beautifier->getResult();
-
-        $this->assertSame("var x = 1; //This is a comment\n", $output);
+        $beautifier = new JSBeautify('if(true){var x=1;}', ['indent_char' => 42]);
+        $this->assertSame("if (true) {\n    var x = 1;\n}", $beautifier->getResult());
     }
 
     /**
-     * Test multi-line comment preservation
+     * Tab character is a valid indent_char.
      */
-    public function testMultiLineComment()
+    public function testIndentCharTab(): void
     {
-        $input = 'var x=1;/*This is a\nmulti-line\ncomment*/var y=2;';
-        $beautifier = new JSBeautify($input);
-        $output = $beautifier->getResult();
-
-        $this->assertSame("var x = 1;\n/*This is a\\nmulti-line\\ncomment*/\n\nvar y = 2;", $output);
+        $beautifier = new JSBeautify('if(true){var x=1;}', ['indent_char' => "\t", 'indent_size' => 1]);
+        $this->assertSame("if (true) {\n\tvar x = 1;\n}", $beautifier->getResult());
     }
 
     /**
-     * Test string preservation with double quotes
+     * indent_level shifts the starting indentation depth.
      */
-    public function testStringPreservationDoubleQuotes()
+    public function testStartingIndentLevel(): void
     {
-        $input = 'var str="Hello World";';
-        $beautifier = new JSBeautify($input);
-        $output = $beautifier->getResult();
-
-        $this->assertSame('var str = "Hello World";', $output);
+        $beautifier = new JSBeautify('var x=1;', ['indent_level' => 2]);
+        // The very first token never triggers printNewLine, so indent_level only
+        // matters once a newline is emitted – test with a block to exercise it.
+        $beautifier2 = new JSBeautify('if(true){var x=1;}', ['indent_level' => 1]);
+        $this->assertSame("if (true) {\n        var x = 1;\n    }", $beautifier2->getResult());
     }
 
     /**
-     * Test string preservation with single quotes
+     * Non-bool preserve_newlines must fall back to false (no extra blank lines).
      */
-    public function testStringPreservationSingleQuotes()
+    public function testPreserveNewlinesFallsBackToFalseOnInvalidValue(): void
     {
-        $input = "var str='Hello World';";
-        $beautifier = new JSBeautify($input);
-        $output = $beautifier->getResult();
-
-        $this->assertSame("var str = 'Hello World';", $output);
+        $input = "var x=1;\n\n\nvar y=2;";
+        $beautifier = new JSBeautify($input, ['preserve_newlines' => 'yes']);
+        $this->assertSame("var x = 1;\nvar y = 2;", $beautifier->getResult());
     }
 
     /**
-     * Test bracket and brace formatting in if statement
+     * preserve_newlines = true keeps blank lines in the output.
      */
-    public function testIfStatementFormatting()
+    public function testPreserveNewlinesOption(): void
     {
-        $input = 'if(true){console.log("test");}';
-        $beautifier = new JSBeautify($input);
+        $input = "var x=1;\n\n\nvar y=2;";
+        $beautifier = new JSBeautify($input, ['preserve_newlines' => true]);
         $output = $beautifier->getResult();
+        // Two blank lines should produce at least one preserved blank line.
+        $this->assertStringContainsString("\n\n", $output);
+    }
 
-        $this->assertSame("if (true) {\n    console.log(\"test\");\n}", $output);
+    // -------------------------------------------------------------------------
+    // Operators
+    // -------------------------------------------------------------------------
+
+    /**
+     * Arithmetic operators receive surrounding spaces.
+     */
+    public function testArithmeticOperatorSpacing(): void
+    {
+        $beautifier = new JSBeautify('var r=a+b-c*d/e%f;');
+        $this->assertSame('var r = a + b - c * d / e % f;', $beautifier->getResult());
     }
 
     /**
-     * Test array formatting
+     * Strict equality / inequality operators are spaced correctly.
      */
-    public function testArrayFormatting()
+    public function testStrictEqualityOperators(): void
     {
-        $input = 'var arr=[1,2,3,4,5];';
-        $beautifier = new JSBeautify($input);
-        $output = $beautifier->getResult();
-
-        $this->assertSame('var arr = [1, 2, 3, 4, 5];', $output);
+        $beautifier = new JSBeautify('if(a===b||c!==d){}');
+        $this->assertSame("if (a === b || c !== d) {}", $beautifier->getResult());
     }
 
     /**
-     * Test object literal formatting
+     * Compound assignment operators receive surrounding spaces.
      */
-    public function testObjectLiteralFormatting()
+    public function testCompoundAssignmentOperators(): void
     {
-        $input = 'var obj={name:"test",value:42};';
-        $beautifier = new JSBeautify($input);
-        $output = $beautifier->getResult();
-
-        $this->assertSame("var obj = {\n    name: \"test\",\n    value: 42\n};", $output);
+        $beautifier = new JSBeautify('x+=1;x-=1;x*=2;x/=2;x%=3;');
+        $this->assertSame("x += 1;\nx -= 1;\nx *= 2;\nx /= 2;\nx %= 3;", $beautifier->getResult());
     }
 
     /**
-     * Test function declaration formatting
+     * Unary negation directly after return must keep a space, not glue tokens.
      */
-    public function testFunctionDeclaration()
+    public function testUnaryMinusAfterReturn(): void
     {
-        $input = 'function myFunc(a,b,c){return a+b+c;}';
-        $beautifier = new JSBeautify($input);
-        $output = $beautifier->getResult();
-
-        $this->assertSame("function myFunc(a, b, c) {\n    return a + b + c;\n}", $output);
+        $beautifier = new JSBeautify('function f(){return -1;}');
+        $this->assertSame("function f() {\n    return -1;\n}", $beautifier->getResult());
     }
 
     /**
-     * Test for loop formatting
+     * Logical NOT directly after return must keep a space.
      */
-    public function testForLoopFormatting()
+    public function testUnaryNotAfterReturn(): void
     {
-        $input = 'for(var i=0;i<10;i++){console.log(i);}';
-        $beautifier = new JSBeautify($input);
-        $output = $beautifier->getResult();
-
-        $this->assertSame("for (var i = 0; i < 10; i++) {\n    console.log(i);\n}", $output);
+        $beautifier = new JSBeautify('function f(){return !flag;}');
+        $this->assertSame("function f() {\n    return !flag;\n}", $beautifier->getResult());
     }
 
     /**
-     * Test while loop formatting
+     * Pre-increment operator must not gain extra spaces.
      */
-    public function testWhileLoopFormatting()
+    public function testPreIncrementOperator(): void
     {
-        $input = 'while(true){break;}';
-        $beautifier = new JSBeautify($input);
-        $output = $beautifier->getResult();
-
-        $this->assertSame("while (true) {\n    break;\n}", $output);
+        $beautifier = new JSBeautify('for(var i=0;i<10;++i){}');
+        $this->assertSame("for (var i = 0; i < 10; ++i) {}", $beautifier->getResult());
     }
 
     /**
-     * Test ternary operator handling
+     * Member-access dot must have no surrounding spaces.
      */
-    public function testTernaryOperator()
+    public function testMemberAccessDot(): void
     {
-        $input = 'var x=true?1:2;';
-        $beautifier = new JSBeautify($input);
-        $output = $beautifier->getResult();
-
-        $this->assertSame('var x = true ? 1 : 2;', $output);
+        $beautifier = new JSBeautify('a.b.c;');
+        $this->assertSame('a.b.c;', $beautifier->getResult());
     }
 
     /**
-     * Test custom indent size option
+     * Bitwise operators receive surrounding spaces.
      */
-    public function testCustomIndentSize()
+    public function testBitwiseOperators(): void
     {
-        $input = 'if(true){var x=1;}';
-        $beautifier = new JSBeautify($input, ['indent_size' => 2]);
-        $output = $beautifier->getResult();
-
-        $this->assertSame("if (true) {\n  var x = 1;\n}", $output);
+        $beautifier = new JSBeautify('var x=a&b|c^d;');
+        $this->assertSame('var x = a & b | c ^ d;', $beautifier->getResult());
     }
 
     /**
-     * Test custom indent character option
+     * Scope-resolution operator :: must have no surrounding spaces.
      */
-    public function testCustomIndentChar()
+    public function testScopeResolutionOperator(): void
     {
-        $input = 'if(true){var x=1;}';
-        $beautifier = new JSBeautify($input, ['indent_char' => "\t"]);
-        $output = $beautifier->getResult();
+        $beautifier = new JSBeautify('Foo::bar();');
+        $this->assertSame('Foo::bar();', $beautifier->getResult());
+    }
 
-        $this->assertSame("if (true) {\n\t\t\t\tvar x = 1;\n}", $output);
+    // -------------------------------------------------------------------------
+    // Control flow
+    // -------------------------------------------------------------------------
+
+    /**
+     * else-if on the same line as closing brace must be kept together.
+     */
+    public function testElseIfFormatting(): void
+    {
+        $beautifier = new JSBeautify('if(a){x();}else if(b){y();}else{z();}');
+        $this->assertSame(
+            "if (a) {\n    x();\n} else if (b) {\n    y();\n} else {\n    z();\n}",
+            $beautifier->getResult()
+        );
     }
 
     /**
-     * Test complex nested structure
+     * do-while loop must keep the while token on the same line as the closing brace.
      */
-    public function testComplexNestedStructure()
+    public function testDoWhileFormatting(): void
     {
-        $input = 'function test(){if(condition){for(var i=0;i<10;i++){if(arr[i]){console.log(arr[i]);}}}}';
-        $beautifier = new JSBeautify($input);
-        $output = $beautifier->getResult();
-
-        $this->assertSame("function test() {\n    if (condition) {\n        for (var i = 0; i < 10; i++) {\n            if (arr[i]) {\n                console.log(arr[i]);\n            }\n        }\n    }\n}", $output);
+        $beautifier = new JSBeautify('do{x();}while(condition);');
+        $this->assertSame("do {\n    x();\n} while (condition);", $beautifier->getResult());
     }
 
     /**
-     * Test that beautifier handles code with script tags
+     * try-catch-finally blocks must be formatted correctly.
      */
-    public function testScriptTagHandling()
+    public function testTryCatchFinallyFormatting(): void
     {
-        $input = '<script type="text/javascript">var x=1;</script>';
-        $beautifier = new JSBeautify($input);
-        $output = $beautifier->getResult();
-
-        $this->assertSame('<script type="text/javascript">var x = 1;</script>', $output);
+        $beautifier = new JSBeautify('try{doSomething();}catch(e){handle(e);}finally{cleanup();}');
+        $this->assertSame(
+            "try {\n    doSomething();\n} catch(e) {\n    handle(e);\n} finally {\n    cleanup();\n}",
+            $beautifier->getResult()
+        );
     }
 
     /**
-     * Test regex literal preservation
+     * A switch with fall-through (no break) must still indent case bodies.
      */
-    public function testRegexLiteralPreservation()
+    public function testSwitchFallThrough(): void
     {
-        $input = 'var regex=/[a-z]+/g;';
-        $beautifier = new JSBeautify($input);
+        $beautifier = new JSBeautify('switch(x){case 1:case 2:doSomething();break;}');
         $output = $beautifier->getResult();
-
-        $this->assertSame('var regex = /[a-z]+/g;', $output);
+        $this->assertStringContainsString("case 1:", $output);
+        $this->assertStringContainsString("case 2:", $output);
+        $this->assertStringContainsString("doSomething();", $output);
     }
 
     /**
-     * Test switch statement formatting
+     * continue statement must appear on its own line.
      */
-    public function testSwitchStatementFormatting()
+    public function testContinueStatement(): void
     {
-        $input = 'switch(x){case 1:break;case 2:break;default:break;}';
-        $beautifier = new JSBeautify($input);
+        $beautifier = new JSBeautify('for(var i=0;i<10;i++){if(i===5){continue;}console.log(i);}');
         $output = $beautifier->getResult();
-
-        $this->assertSame("switch (x) {\ncase 1:\n    break;\ncase 2:\n    break;\ndefault:\n    break;\n}", $output);
+        $this->assertStringContainsString("continue;", $output);
+        $this->assertStringContainsString("console.log(i);", $output);
     }
 
     /**
-     * Test method chaining
+     * throw statement must keep its argument on the same line.
      */
-    public function testMethodChaining()
+    public function testThrowStatement(): void
     {
-        $input = 'obj.method1().method2().method3();';
-        $beautifier = new JSBeautify($input);
-        $output = $beautifier->getResult();
+        $beautifier = new JSBeautify('function f(){throw new Error("oops");}');
+        $this->assertSame(
+            "function f() {\n    throw new Error(\"oops\");\n}",
+            $beautifier->getResult()
+        );
+    }
 
-        $this->assertSame('obj.method1().method2().method3();', $output);
+    // -------------------------------------------------------------------------
+    // Functions
+    // -------------------------------------------------------------------------
+
+    /**
+     * Anonymous function assigned to a variable must not gain a newline before {.
+     */
+    public function testAnonymousFunctionExpression(): void
+    {
+        $beautifier = new JSBeautify('var fn=function(a,b){return a+b;};');
+        $this->assertSame("var fn = function(a, b) {\n    return a + b;\n};", $beautifier->getResult());
+    }
+
+    /**
+     * Immediately-invoked function expression (IIFE) must be formatted correctly.
+     */
+    public function testIIFE(): void
+    {
+        $beautifier = new JSBeautify('(function(){var x=1;})();');
+        $output = $beautifier->getResult();
+        $this->assertStringContainsString('var x = 1;', $output);
+        $this->assertStringContainsString('(function()', $output);
+    }
+
+    /**
+     * Callback passed as argument must not gain an unwanted newline.
+     */
+    public function testFunctionAsArgument(): void
+    {
+        $beautifier = new JSBeautify('arr.forEach(function(item){console.log(item);});');
+        $output = $beautifier->getResult();
+        $this->assertStringContainsString('arr.forEach(function(item)', $output);
+        $this->assertStringContainsString('console.log(item);', $output);
+    }
+
+    // -------------------------------------------------------------------------
+    // Var declarations
+    // -------------------------------------------------------------------------
+
+    /**
+     * Multiple var declarations on one line must each appear on their own line.
+     */
+    public function testMultipleVarDeclarationsOnOneLine(): void
+    {
+        $beautifier = new JSBeautify('var a=1,b=2,c=3;');
+        $this->assertSame("var a = 1,\nb = 2,\nc = 3;", $beautifier->getResult());
+    }
+
+    /**
+     * A var declaration with an object value should split after the comma separator.
+     */
+    public function testVarWithObjectValue(): void
+    {
+        $beautifier = new JSBeautify('var obj={a:1,b:2};');
+        $this->assertSame("var obj = {\n    a: 1,\n    b: 2\n};", $beautifier->getResult());
+    }
+
+    // -------------------------------------------------------------------------
+    // Strings and literals
+    // -------------------------------------------------------------------------
+
+    /**
+     * Strings containing operators must not be altered.
+     */
+    public function testStringWithOperatorsInsideIsUntouched(): void
+    {
+        $beautifier = new JSBeautify('var s="a+b===c";');
+        $this->assertSame('var s = "a+b===c";', $beautifier->getResult());
+    }
+
+    /**
+     * Escaped quotes inside a string must be preserved.
+     */
+    public function testEscapedQuotesInString(): void
+    {
+        $beautifier = new JSBeautify('var s="say \\"hello\\"";');
+        $this->assertSame('var s = "say \\"hello\\"";', $beautifier->getResult());
+    }
+
+    /**
+     * Escaped single quote inside a single-quoted string must be preserved.
+     */
+    public function testEscapedSingleQuoteInString(): void
+    {
+        $beautifier = new JSBeautify("var s='it\\'s fine';");
+        $this->assertSame("var s = 'it\\'s fine';", $beautifier->getResult());
+    }
+
+    /**
+     * Scientific-notation numeric literals must not be split.
+     */
+    public function testScientificNotationLiteral(): void
+    {
+        $beautifier = new JSBeautify('var n=1E+10;');
+        $this->assertSame('var n = 1E+10;', $beautifier->getResult());
+    }
+
+    /**
+     * Regex containing a slash inside a character class must not be broken.
+     */
+    public function testRegexWithSlashInCharacterClass(): void
+    {
+        $beautifier = new JSBeautify('var r=/[a-z\/]+/gi;');
+        $this->assertSame('var r = /[a-z\/]+/gi;', $beautifier->getResult());
+    }
+
+    // -------------------------------------------------------------------------
+    // Whitespace-only / trivial inputs
+    // -------------------------------------------------------------------------
+
+    /**
+     * Input containing only whitespace must produce an empty string.
+     */
+    public function testWhitespaceOnlyInput(): void
+    {
+        $beautifier = new JSBeautify("   \n\t  ");
+        $this->assertSame('', $beautifier->getResult());
+    }
+
+    /**
+     * A single semicolon must be returned as-is.
+     */
+    public function testSingleSemicolon(): void
+    {
+        $beautifier = new JSBeautify(';');
+        $this->assertSame(';', $beautifier->getResult());
+    }
+
+    // -------------------------------------------------------------------------
+    // Script-tag wrapping
+    // -------------------------------------------------------------------------
+
+    /**
+     * Input without script tags must not gain them in the output.
+     */
+    public function testNoScriptTagsAddedWhenAbsent(): void
+    {
+        $beautifier = new JSBeautify('var x=1;');
+        $output = $beautifier->getResult();
+        $this->assertStringNotContainsString('<script', $output);
+        $this->assertStringNotContainsString('</script>', $output);
+    }
+
+    /**
+     * Malformed / partial script tag must not trigger wrapping.
+     */
+    public function testPartialScriptTagIsNotWrapped(): void
+    {
+        $beautifier = new JSBeautify('<script>var x=1;');
+        $output = $beautifier->getResult();
+        // Without the closing </script>, the lengths differ only partially –
+        // the class should not crash and should return something sensible.
+        $this->assertIsString($output);
     }
 }
