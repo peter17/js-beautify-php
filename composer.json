@@ -16,5 +16,8 @@
         "psr-4": {
             "JSBeautify\\": "."
         }
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^13.0"
     }
 }
